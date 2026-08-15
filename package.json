@@ -1,0 +1,25 @@
+{
+  "name": "plumbline",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter ./apps/* --filter ./packages/* run dev",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "recon": "tsx scripts/recon.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "worker": "tsx scripts/worker.ts",
+    "metrics:lint": "tsx scripts/metrics-lint.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
+  },
+  "packageManager": "pnpm@11.17.0"
+}

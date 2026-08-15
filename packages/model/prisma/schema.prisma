@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  stores        Store[]
+  orders        Order[]
+  refunds       Refund[]
+  transactions  Transaction[]
+  customers     Customer[]
+  cogsEntries   EnrichCogs[]
+  adSpendEntries EnrichAdSpend[]
+
+  @@map("accounts")
+}
+
+model Store {
+  id                    String    @id @default(cuid())
+  accountId             String    @map("account_id")
+  shopDomain            String    @unique @map("shop_domain")
+  shopCurrency          String    @map("shop_currency")
+  shopTimezone          String    @map("shop_timezone")
+  accessTokenEncrypted  String?   @map("access_token_encrypted")
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted")
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  scopes                String?
+  installedAt           DateTime? @map("installed_at")
+  uninstalledAt         DateTime? @map("uninstalled_at")
+
+  account       Account        @relation(fields: [accountId], references: [id])
+  orders        Order[]
+  refunds       Refund[]
+  transactions  Transaction[]
+  customers     Customer[]
+  webhookEvents WebhookEvent[]
+  syncStates    SyncState[]
+  cogsEntries   EnrichCogs[]
+  adSpendEntries EnrichAdSpend[]
+
+  @@index([accountId])
+  @@map("stores")
+}
+
+model Order {
+  id                        String    @id @default(cuid())
+  accountId                 String    @map("account_id")
+  storeId                   String    @map("store_id")
+  shopifyOrderId             String    @map("shopify_order_id")
+  createdAt                 DateTime  @map("created_at")
+  processedAt                DateTime  @map("processed_at")
+  cancelledAt                DateTime? @map("cancelled_at")
+  closedAt                   DateTime? @map("closed_at")
+  test                       Boolean   @default(false)
+  currencyCode                String    @map("currency_code")
+  presentmentCurrencyCode      String    @map("presentment_currency_code")
+  grossSalesMinor              Int       @map("gross_sales_minor")
+  discountsMinor               Int       @map("discounts_minor")
+  shippingMinor                 Int       @map("shipping_minor")
+  taxesMinor                    Int       @map("taxes_minor")
+  currentSubtotalMinor           Int       @map("current_subtotal_minor")
+  currentTotalMinor              Int       @map("current_total_minor")
+  displayFinancialStatus        String    @map("display_financial_status")
+  displayFulfillmentStatus      String    @map("display_fulfillment_status")
+  syncedAt                    DateTime  @default(now()) @map("synced_at")
+  source                     String
+
+  account       Account   @relation(fields: [accountId], references: [id])
+  store         Store     @relation(fields: [storeId], references: [id])
+  lineItems     OrderLineItem[]
+  refunds       Refund[]
+  discountRows  Discount[]
+  transactions  Transaction[]
+  firstOrderOf  Customer[] @relation("CustomerFirstOrder")
+
+  @@unique([storeId, shopifyOrderId])
+  @@index([storeId, createdAt])
+  @@index([storeId, processedAt])
+  @@index([accountId])
+  @@map("orders")
+}
+
+model OrderLineItem {
+  id                 String @id @default(cuid())
+  accountId          String @map("account_id")
+  orderId            String @map("order_id")
+  shopifyLineItemId  String @map("shopify_line_item_id")
+  productId          String? @map("product_id")
+  variantId          String? @map("variant_id")
+  sku                String?
+  quantity           Int
+  priceMinor         Int    @map("price_minor")
+  discountMinor      Int    @map("discount_minor")
+  currencyCode       String @map("currency_code")
+
+  order         Order          @relation(fields: [orderId], references: [id])
+  refundLines   RefundLineItem[]
+
+  @@unique([orderId, shopifyLineItemId])
+  @@index([orderId])
+  @@index([accountId])
+  @@map("order_line_items")
+}
+
+model Refund {
+  id                   String   @id @default(cuid())
+  accountId            String   @map("account_id")
+  storeId              String   @map("store_id")
+  orderId              String   @map("order_id")
+  shopifyRefundId      String   @map("shopify_refund_id")
+  processedAt          DateTime @map("processed_at")
+  amountMinor          Int      @map("amount_minor")
+  shippingRefundMinor  Int      @map("shipping_refund_minor")
+  taxRefundMinor       Int      @map("tax_refund_minor")
+  currencyCode         String   @map("currency_code")
+
+  account     Account @relation(fields: [accountId], references: [id])
+  store       Store   @relation(fields: [storeId], references: [id])
+  order       Order   @relation(fields: [orderId], references: [id])
+  lineItems   RefundLineItem[]
+
+  @@unique([storeId, shopifyRefundId])
+  @@index([storeId, processedAt])
+  @@index([accountId])
+  @@map("refunds")
+}
+
+model RefundLineItem {
+  id              String @id @default(cuid())
+  accountId       String @map("account_id")
+  refundId        String @map("refund_id")
+  orderLineItemId String @map("order_line_item_id")
+  quantity        Int
+  amountMinor     Int    @map("amount_minor")
+
+  refund       Refund        @relation(fields: [refundId], references: [id])
+  orderLine    OrderLineItem @relation(fields: [orderLineItemId], references: [id])
+
+  @@index([refundId])
+  @@index([accountId])
+  @@map("refund_line_items")
+}
+
+model Discount {
+  id              String  @id @default(cuid())
+  accountId       String  @map("account_id")
+  orderId         String  @map("order_id")
+  applicationType String  @map("application_type") // 'code' | 'automatic' | 'script'
+  code            String?
+  amountMinor     Int     @map("amount_minor")
+  currencyCode    String  @map("currency_code")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([accountId])
+  @@map("discounts")
+}
+
+model Transaction {
+  id                    String    @id @default(cuid())
+  accountId             String    @map("account_id")
+  storeId               String    @map("store_id")
+  orderId               String    @map("order_id")
+  shopifyTransactionId  String    @map("shopify_transaction_id")
+  kind                  String // 'sale' | 'refund' | 'void' | 'capture'
+  status                String
+  amountMinor           Int       @map("amount_minor")
+  feeMinor               Int?      @map("fee_minor")
+  currencyCode          String    @map("currency_code")
+  processedAt           DateTime  @map("processed_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+
+  @@unique([storeId, shopifyTransactionId])
+  @@index([accountId])
+  @@map("transactions")
+}
+
+model Customer {
+  id                 String   @id @default(cuid())
+  accountId          String   @map("account_id")
+  storeId            String   @map("store_id")
+  shopifyCustomerId  String   @map("shopify_customer_id")
+  createdAt          DateTime @map("created_at")
+  firstOrderId       String?  @map("first_order_id")
+  currencyCode       String   @map("currency_code")
+
+  account   Account @relation(fields: [accountId], references: [id])
+  store     Store   @relation(fields: [storeId], references: [id])
+  firstOrder Order? @relation("CustomerFirstOrder", fields: [firstOrderId], references: [id])
+
+  @@unique([storeId, shopifyCustomerId])
+  @@index([accountId])
+  @@map("customers")
+}
+
+model WebhookEvent {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  storeId         String   @map("store_id")
+  shopifyWebhookId String  @map("shopify_webhook_id")
+  topic           String
+  receivedAt      DateTime @default(now()) @map("received_at")
+  payloadHash     String   @map("payload_hash")
+  status          String // 'processed' | 'duplicate' | 'failed'
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, shopifyWebhookId])
+  @@index([accountId])
+  @@map("webhook_events")
+}
+
+model SyncState {
+  id           String    @id @default(cuid())
+  accountId    String    @map("account_id")
+  storeId      String    @map("store_id")
+  resource     String // 'orders' | 'products' | 'customers'
+  kind         String // 'backfill' | 'incremental'
+  cursor       String?
+  watermarkAt  DateTime? @map("watermark_at")
+  status       String
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, resource, kind])
+  @@index([accountId])
+  @@map("sync_state")
+}
+
+model EnrichCogs {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  storeId       String   @map("store_id")
+  sku           String
+  costMinor     Int      @map("cost_minor")
+  currencyCode  String   @map("currency_code")
+  effectiveFrom DateTime @map("effective_from")
+  source        String // 'csv_upload'
+
+  account Account @relation(fields: [accountId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+
+  @@index([accountId])
+  @@index([storeId, sku])
+  @@map("enrich_cogs")
+}
+
+model EnrichAdSpend {
+  id           String   @id @default(cuid())
+  accountId    String   @map("account_id")
+  storeId      String   @map("store_id")
+  channel      String // 'meta' | 'google'
+  date         DateTime
+  spendMinor   Int      @map("spend_minor")
+  currencyCode String   @map("currency_code")
+  source       String // 'csv_upload' | 'api'
+
+  account Account @relation(fields: [accountId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+
+  @@index([accountId])
+  @@index([storeId, channel, date])
+  @@map("enrich_ad_spend")
+}
