@@ -44,6 +44,8 @@ export interface OAuthTokenResponse {
 export interface ShopifyConnector {
   graphql<T>(query: string, variables?: Record<string, unknown>): Promise<GraphqlResult<T>>;
   bulkQuery(query: string): Promise<BulkOperationResult>;
+  /** Polls `node(id) { ... on BulkOperation }` — the extraction itself is not rate-limited (docs/PLAN.md §4). */
+  getBulkOperation(id: string): Promise<BulkOperationResult>;
   verifyWebhookHmac(rawBody: Buffer | string, hmacHeader: string): boolean;
   buildInstallUrl(shop: string, redirectUri: string, state: string): string;
   exchangeCodeForToken(shop: string, code: string): Promise<OAuthTokenResponse>;

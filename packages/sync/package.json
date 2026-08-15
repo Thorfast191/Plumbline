@@ -8,14 +8,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "echo \"(no linter configured yet)\"",
-    "test": "echo \"(no tests yet — see docs/BUILD-SPEC.md for the phase this package belongs to)\""
+    "test": "vitest run"
   },
   "dependencies": {
     "@plumbline/connector": "workspace:*",
     "@plumbline/model": "workspace:*"
   },
   "devDependencies": {
+    "@prisma/client": "^5.22.0",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8"
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8",
+    "dotenv": "^16.4.7"
   }
 }

@@ -1,4 +1,8 @@
+import { config } from "dotenv";
+import { resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
+
+config({ path: resolve(import.meta.dirname, "../../../.env") });
 
 // Seeds via the migrate/superuser connection since RLS would otherwise
 // reject an insert made with no account context set. Real inserts happen

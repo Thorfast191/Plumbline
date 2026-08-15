@@ -43,6 +43,7 @@ model Store {
   customers     Customer[]
   webhookEvents WebhookEvent[]
   syncStates    SyncState[]
+  syncCorrections SyncCorrection[]
   cogsEntries   EnrichCogs[]
   adSpendEntries EnrichAdSpend[]
 
@@ -70,6 +71,7 @@ model Order {
   currentTotalMinor              Int       @map("current_total_minor")
   displayFinancialStatus        String    @map("display_financial_status")
   displayFulfillmentStatus      String    @map("display_fulfillment_status")
+  shopifyUpdatedAt            DateTime? @map("shopify_updated_at") // Shopify's own updated_at, for last-write-wins merges (docs/PLAN.md §10)
   syncedAt                    DateTime  @default(now()) @map("synced_at")
   source                     String
 
@@ -256,6 +258,24 @@ model EnrichCogs {
   @@index([accountId])
   @@index([storeId, sku])
   @@map("enrich_cogs")
+}
+
+model SyncCorrection {
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id")
+  storeId     String   @map("store_id")
+  resource    String // 'orders' | 'refunds' | ...
+  resourceId  String   @map("resource_id") // shopify natural id of the corrected record
+  field       String
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  detectedAt  DateTime @default(now()) @map("detected_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@index([accountId])
+  @@index([storeId, detectedAt])
+  @@map("sync_corrections")
 }
 
 model EnrichAdSpend {

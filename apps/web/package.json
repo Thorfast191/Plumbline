@@ -11,6 +11,9 @@
     "test": "echo \"(no tests yet — Phase 6)\""
   },
   "dependencies": {
+    "@plumbline/connector": "workspace:*",
+    "@plumbline/model": "workspace:*",
+    "@plumbline/sync": "workspace:*",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

@@ -131,6 +131,29 @@ export class ShopifyClient implements ShopifyConnector {
     return { id: op.id, status: op.status as BulkOperationResult["status"], objectCount: 0, url: null, errorCode: null };
   }
 
+  async getBulkOperation(id: string): Promise<BulkOperationResult> {
+    const query = `query { node(id: ${JSON.stringify(id)}) { ... on BulkOperation { id status objectCount url errorCode } } }`;
+    const result = await this.graphql<{
+      node: {
+        id: string;
+        status: string;
+        objectCount: string | number;
+        url: string | null;
+        errorCode: string | null;
+      } | null;
+    }>(query);
+
+    const node = result.data.node;
+    if (!node) throw new Error(`BulkOperation ${id} not found`);
+    return {
+      id: node.id,
+      status: node.status as BulkOperationResult["status"],
+      objectCount: Number(node.objectCount),
+      url: node.url,
+      errorCode: node.errorCode,
+    };
+  }
+
   verifyWebhookHmac(rawBody: Buffer | string, hmacHeader: string): boolean {
     if (!this.config.webhookSecret) {
       throw new ShopifyCredentialsMissingError(["webhookSecret (SHOPIFY_API_SECRET)"]);
