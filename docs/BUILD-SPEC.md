@@ -8,14 +8,14 @@ Save at `docs/BUILD-SPEC.md` alongside `CLAUDE.md`.
 
 | Field | Value |
 |---|---|
-| Platform for v1 | `<FILL IN — ONE. e.g. "Shopify">` |
-| Who buys this | `<FILL IN — store owner? agency managing 20 stores? in-house analyst?>` |
-| Their monthly platform spend | `<FILL IN — anchors what they will pay you>` |
-| The three questions they cannot answer today | `<FILL IN — be specific, in their words>` |
-| What they use instead | `<FILL IN — exported CSV into Google Sheets? nothing?>` |
-| Typical store size | `<FILL IN — orders/month, catalogue size, years of history>` |
-| Multi-store? | `<FILL IN — decides whether tenancy is store-level or account-level>` |
-| External data they have | `<FILL IN — COGS in a sheet? ad spend in Meta? shipping invoices?>` |
+| Platform for v1 | **Shopify** — confirmed 2026-08-15 |
+| Who buys this | **All three, as three modules on one account model** — confirmed 2026-08-15: (1) single store owner, (2) agency managing multiple stores, (3) in-house analyst. *Scope note: this is a materially larger v1 than one buyer would be — see docs/PLAN.md §13 risk #2.* |
+| Their monthly platform spend | **ASSUMED, not confirmed by user — flag at final review.** Targeting Shopify/Shopify Plus merchants roughly $299–$2,000+/mo in platform spend (Advanced Shopify through Plus), since that range is where manual CSV-to-Sheets reporting stops scaling and margin/cohort questions start mattering financially. |
+| The three questions they cannot answer today | **ASSUMED, not confirmed by user — flag at final review.** (1) "Which products/SKUs are actually profitable after fees, shipping, and COGS — not just which sell the most?" (2) "Which acquisition channel brings customers who actually come back, and what are they worth over time?" (3) "Is this discount code/campaign paying for itself, or just moving revenue at a loss?" These map directly to Phase 5's contribution margin, LTV-by-channel, and discount-profitability metrics — if the real questions turn out to be different, Phase 5's priority order should be revisited before building it. |
+| What they use instead | **ASSUMED, not confirmed by user — flag at final review.** Manual CSV export from Shopify admin into Google Sheets, joined by hand against a separate COGS spreadsheet and ad-platform dashboards; no single source of truth. |
+| Typical store size | **ASSUMED, not confirmed by user — flag at final review.** Individual stores: 1,000–10,000 orders/month, 100–2,000 SKU catalogue, 2–5 years of order history (this is what sets Phase 3's 10,000+-order test threshold — already used as the Gate 3 target). Agencies: 5–20 such stores per account. |
+| Multi-store? | **Yes — confirmed 2026-08-15.** Account-level, store-scoped tenancy (one account holds many stores, every query scoped by both `account_id` and `store_id`) — chosen specifically to support the agency buyer module. Already implemented in Phase 2's schema and RLS policies. |
+| External data they have | **Confirmed 2026-08-15**: COGS maintained in a spreadsheet (needs CSV upload path), plus ad spend available from both Meta and Google (not yet connected anywhere). |
 
 Row 4 is the product. If those three questions are things the platform already answers,
 there is no product — stop and find better questions before writing code.
