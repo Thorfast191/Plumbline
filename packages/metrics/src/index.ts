@@ -90,14 +90,26 @@ export interface Period {
 // behavior (docs/PLAN.md §7): "returns are booked on refund-processed
 // date, not order date."
 
+// Every `created_at`/`processed_at` comparison below is wrapped in
+// `AT TIME ZONE 'UTC'`. The underlying columns are `TIMESTAMP(3)` (no
+// timezone, see packages/model/prisma/schema.prisma) — passed a JS Date
+// parameter, Postgres/node-postgres would otherwise reinterpret the naive
+// column value using the connection's session TimeZone setting, silently
+// shifting every boundary comparison whenever that session default isn't
+// UTC. Phase 5's SQL already does this (packages/recon's Phase-5 boundary
+// test caught the bug there); this Phase 6 pass retrofits the original
+// Phase 4 metrics for consistency, per CLAUDE.md's per-layer timezone rule.
+// Confirmed dormant until now only because the Phase 4 synthetic fixture
+// places every order at noon UTC, far from any day boundary — `pnpm recon`
+// still passes 32/32 zero-delta after this change (see Phase 6 report).
 const GROSS_SALES_SQL = `
 SELECT COALESCE(SUM(gross_sales_minor), 0)::text AS value
 FROM orders
 WHERE store_id = $1
   AND test = false
   AND cancelled_at IS NULL
-  AND created_at >= $2
-  AND created_at < $3
+  AND (created_at AT TIME ZONE 'UTC') >= $2
+  AND (created_at AT TIME ZONE 'UTC') < $3
 `.trim();
 
 const DISCOUNTS_SQL = `
@@ -106,8 +118,8 @@ FROM orders
 WHERE store_id = $1
   AND test = false
   AND cancelled_at IS NULL
-  AND created_at >= $2
-  AND created_at < $3
+  AND (created_at AT TIME ZONE 'UTC') >= $2
+  AND (created_at AT TIME ZONE 'UTC') < $3
 `.trim();
 
 const ORDER_COUNT_SQL = `
@@ -116,8 +128,8 @@ FROM orders
 WHERE store_id = $1
   AND test = false
   AND cancelled_at IS NULL
-  AND created_at >= $2
-  AND created_at < $3
+  AND (created_at AT TIME ZONE 'UTC') >= $2
+  AND (created_at AT TIME ZONE 'UTC') < $3
 `.trim();
 
 // No cancelled_at filter here, deliberately: a refund is booked on its own
@@ -130,8 +142,8 @@ FROM refunds r
 JOIN orders o ON o.id = r.order_id
 WHERE r.store_id = $1
   AND o.test = false
-  AND r.processed_at >= $2
-  AND r.processed_at < $3
+  AND (r.processed_at AT TIME ZONE 'UTC') >= $2
+  AND (r.processed_at AT TIME ZONE 'UTC') < $3
 `.trim();
 
 const NET_SALES_SQL = `
@@ -147,13 +159,13 @@ WITH sale_side AS (
   SELECT COALESCE(SUM(shipping_minor), 0) AS amt
   FROM orders
   WHERE store_id = $1 AND test = false AND cancelled_at IS NULL
-    AND created_at >= $2 AND created_at < $3
+    AND (created_at AT TIME ZONE 'UTC') >= $2 AND (created_at AT TIME ZONE 'UTC') < $3
 ),
 refund_side AS (
   SELECT COALESCE(SUM(r.shipping_refund_minor), 0) AS amt
   FROM refunds r JOIN orders o ON o.id = r.order_id
   WHERE r.store_id = $1 AND o.test = false
-    AND r.processed_at >= $2 AND r.processed_at < $3
+    AND (r.processed_at AT TIME ZONE 'UTC') >= $2 AND (r.processed_at AT TIME ZONE 'UTC') < $3
 )
 SELECT (sale_side.amt::bigint - refund_side.amt::bigint)::text AS value
 FROM sale_side, refund_side
@@ -164,13 +176,13 @@ WITH sale_side AS (
   SELECT COALESCE(SUM(taxes_minor), 0) AS amt
   FROM orders
   WHERE store_id = $1 AND test = false AND cancelled_at IS NULL
-    AND created_at >= $2 AND created_at < $3
+    AND (created_at AT TIME ZONE 'UTC') >= $2 AND (created_at AT TIME ZONE 'UTC') < $3
 ),
 refund_side AS (
   SELECT COALESCE(SUM(r.tax_refund_minor), 0) AS amt
   FROM refunds r JOIN orders o ON o.id = r.order_id
   WHERE r.store_id = $1 AND o.test = false
-    AND r.processed_at >= $2 AND r.processed_at < $3
+    AND (r.processed_at AT TIME ZONE 'UTC') >= $2 AND (r.processed_at AT TIME ZONE 'UTC') < $3
 )
 SELECT (sale_side.amt::bigint - refund_side.amt::bigint)::text AS value
 FROM sale_side, refund_side
@@ -189,8 +201,8 @@ WHERE t.store_id = $1
   AND o.cancelled_at IS NULL
   AND t.kind = 'sale'
   AND t.fee_minor IS NOT NULL
-  AND t.processed_at >= $2
-  AND t.processed_at < $3
+  AND (t.processed_at AT TIME ZONE 'UTC') >= $2
+  AND (t.processed_at AT TIME ZONE 'UTC') < $3
 `.trim();
 
 const TOTAL_SALES_SQL = `
@@ -202,13 +214,13 @@ WITH gross AS (${GROSS_SALES_SQL.replace("value", "amt")}),
          SELECT COALESCE(SUM(shipping_minor), 0) AS amt
          FROM orders
          WHERE store_id = $1 AND test = false AND cancelled_at IS NULL
-           AND created_at >= $2 AND created_at < $3
+           AND (created_at AT TIME ZONE 'UTC') >= $2 AND (created_at AT TIME ZONE 'UTC') < $3
        ),
        refund_side AS (
          SELECT COALESCE(SUM(r.shipping_refund_minor), 0) AS amt
          FROM refunds r JOIN orders o ON o.id = r.order_id
          WHERE r.store_id = $1 AND o.test = false
-           AND r.processed_at >= $2 AND r.processed_at < $3
+           AND (r.processed_at AT TIME ZONE 'UTC') >= $2 AND (r.processed_at AT TIME ZONE 'UTC') < $3
        )
        SELECT (sale_side.amt - refund_side.amt) AS amt FROM sale_side, refund_side
      ),
@@ -217,13 +229,13 @@ WITH gross AS (${GROSS_SALES_SQL.replace("value", "amt")}),
          SELECT COALESCE(SUM(taxes_minor), 0) AS amt
          FROM orders
          WHERE store_id = $1 AND test = false AND cancelled_at IS NULL
-           AND created_at >= $2 AND created_at < $3
+           AND (created_at AT TIME ZONE 'UTC') >= $2 AND (created_at AT TIME ZONE 'UTC') < $3
        ),
        refund_side AS (
          SELECT COALESCE(SUM(r.tax_refund_minor), 0) AS amt
          FROM refunds r JOIN orders o ON o.id = r.order_id
          WHERE r.store_id = $1 AND o.test = false
-           AND r.processed_at >= $2 AND r.processed_at < $3
+           AND (r.processed_at AT TIME ZONE 'UTC') >= $2 AND (r.processed_at AT TIME ZONE 'UTC') < $3
        )
        SELECT (sale_side.amt - refund_side.amt) AS amt FROM sale_side, refund_side
      ),

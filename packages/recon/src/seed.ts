@@ -23,14 +23,25 @@ export async function cleanupReconFixture(adminClient: PrismaClient): Promise<vo
   const store = await adminClient.store.findUnique({ where: { shopDomain: RECON_FIXTURE_SHOP_DOMAIN } });
   if (!store) return;
 
-  await adminClient.refundLineItem.deleteMany({ where: { accountId: store.accountId } });
-  await adminClient.refund.deleteMany({ where: { accountId: store.accountId } });
-  await adminClient.transaction.deleteMany({ where: { accountId: store.accountId } });
-  await adminClient.discount.deleteMany({ where: { accountId: store.accountId } });
-  await adminClient.orderLineItem.deleteMany({ where: { accountId: store.accountId } });
-  await adminClient.order.deleteMany({ where: { accountId: store.accountId } });
+  await deleteOrdersForAccount(adminClient, store.accountId);
   await adminClient.store.deleteMany({ where: { accountId: store.accountId } });
   await adminClient.account.deleteMany({ where: { id: store.accountId } });
+}
+
+/**
+ * Deletes every order (and its dependent rows) for one account, leaving the
+ * account/store themselves intact. Shared by cleanupReconFixture (which
+ * additionally drops the throwaway account/store) and
+ * scripts/seed-demo-data.ts (which reseeds the persistent seed store and
+ * must not delete it).
+ */
+export async function deleteOrdersForAccount(adminClient: PrismaClient, accountId: string): Promise<void> {
+  await adminClient.refundLineItem.deleteMany({ where: { accountId } });
+  await adminClient.refund.deleteMany({ where: { accountId } });
+  await adminClient.transaction.deleteMany({ where: { accountId } });
+  await adminClient.discount.deleteMany({ where: { accountId } });
+  await adminClient.orderLineItem.deleteMany({ where: { accountId } });
+  await adminClient.order.deleteMany({ where: { accountId } });
 }
 
 /**
@@ -60,6 +71,27 @@ export async function seedReconFixture(adminClient: PrismaClient, orders: ReconO
       installedAt: new Date(),
     },
   });
+
+  await insertOrdersForStore(adminClient, account.id, store.id, orders);
+
+  return { accountId: account.id, storeId: store.id };
+}
+
+/**
+ * Field-for-field mapping from ReconOrder onto the real canonical schema,
+ * for an already-existing account/store. Split out from seedReconFixture so
+ * apps/web's demo-data seed (scripts/seed-demo-data.ts) can reuse the same
+ * mapping against the persistent seed store instead of duplicating it —
+ * there is exactly one place that knows how a ReconOrder becomes real rows.
+ */
+export async function insertOrdersForStore(
+  adminClient: PrismaClient,
+  accountId: string,
+  storeId: string,
+  orders: ReconOrder[]
+): Promise<void> {
+  const account = { id: accountId };
+  const store = { id: storeId };
 
   const orderRows = orders.map((o) => ({
     id: o.id,
@@ -159,6 +191,4 @@ export async function seedReconFixture(adminClient: PrismaClient, orders: ReconO
   await adminClient.transaction.createMany({ data: transactionRows });
   await adminClient.refund.createMany({ data: refundRows });
   await adminClient.refundLineItem.createMany({ data: refundLineItemRows });
-
-  return { accountId: account.id, storeId: store.id };
 }
