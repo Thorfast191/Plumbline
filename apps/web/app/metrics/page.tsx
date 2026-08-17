@@ -45,8 +45,13 @@ export default function MetricsPage() {
           </p>
           <p>
             <strong>Reconciliation target:</strong>{" "}
-            {m.reconciliationTargetDescription ?? "No comparable platform figure — see definition above for why."}
+            {m.reconciliationTargetDescription ?? `No comparable platform figure — ${m.nonReconciliationReason}`}
           </p>
+          {m.estimatedInputs.length > 0 && (
+            <p>
+              <strong>⚠ Depends on estimated/uploaded data, not platform-verified fact:</strong> {m.estimatedInputs.join("; ")}
+            </p>
+          )}
           {m.dependsOn.length > 0 && (
             <p>
               <strong>Depends on:</strong> {m.dependsOn.join(", ")}

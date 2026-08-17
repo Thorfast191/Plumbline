@@ -50,7 +50,13 @@ export class SyntheticFixtureReconRunner {
 
     return withAccountContextOn(this.appClient, accountId, async (tx) => {
       const results: ReconCheckResult[] = [];
-      for (const def of registry.all()) {
+      // Phase 5's differentiated metrics (contribution margin, cohort
+      // retention, LTV, ...) have no platform-reported figure at all —
+      // reconciliationTargetDescription is null for those by design (see
+      // packages/metrics), so they're excluded here rather than forced
+      // through mapMetricToReference, which only knows the 8 Phase-4
+      // metrics that DO have a comparable Shopify figure.
+      for (const def of registry.all().filter((d) => d.reconciliationTargetDescription !== null)) {
         const ourFigureMinor = await runMetric(def.id, tx, storeId, period);
         const theirFigureMinor = mapMetricToReference(def.id, reference);
         const deltaMinor = ourFigureMinor - theirFigureMinor;
@@ -104,8 +110,18 @@ export const RECON_PERIODS: Record<string, { from: Date; to: Date }> = {
   "special week (refund + cancellation + discount + multi-currency + test order, 2025-03-10..17)": SPECIAL_PERIOD,
 };
 
-/** Every metric id this recon suite exercises — used by `pnpm metrics:lint` to enforce "no metric ships without a recon test". */
-export const RECON_CHECK_METRIC_IDS: string[] = registry.all().map((d) => d.id);
+/**
+ * Every metric id this recon suite actually exercises against a platform
+ * figure — used by `pnpm metrics:lint` to enforce "every metric that CAN be
+ * reconciled has a recon check". Metrics with reconciliationTargetDescription
+ * === null (Phase 5's differentiated metrics) are correctly absent here;
+ * metrics-lint checks those have a documented nonReconciliationReason
+ * instead of a recon check.
+ */
+export const RECON_CHECK_METRIC_IDS: string[] = registry
+  .all()
+  .filter((d) => d.reconciliationTargetDescription !== null)
+  .map((d) => d.id);
 
 /**
  * Full orchestration for `pnpm recon`: clean any stale fixture data,

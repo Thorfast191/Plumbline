@@ -19,6 +19,7 @@ model Account {
   customers     Customer[]
   cogsEntries   EnrichCogs[]
   adSpendEntries EnrichAdSpend[]
+  shippingCostEntries EnrichShippingCost[]
 
   @@map("accounts")
 }
@@ -46,6 +47,7 @@ model Store {
   syncCorrections SyncCorrection[]
   cogsEntries   EnrichCogs[]
   adSpendEntries EnrichAdSpend[]
+  shippingCostEntries EnrichShippingCost[]
 
   @@index([accountId])
   @@map("stores")
@@ -56,6 +58,7 @@ model Order {
   accountId                 String    @map("account_id")
   storeId                   String    @map("store_id")
   shopifyOrderId             String    @map("shopify_order_id")
+  customerId                 String?   @map("customer_id")
   createdAt                 DateTime  @map("created_at")
   processedAt                DateTime  @map("processed_at")
   cancelledAt                DateTime? @map("cancelled_at")
@@ -74,9 +77,26 @@ model Order {
   shopifyUpdatedAt            DateTime? @map("shopify_updated_at") // Shopify's own updated_at, for last-write-wins merges (docs/PLAN.md §10)
   syncedAt                    DateTime  @default(now()) @map("synced_at")
   source                     String
+  // Shopify Order.sourceName (e.g. "web", "pos", "iphone") — raw platform
+  // field, captured verbatim. See Shopify GraphQL Admin API Order object
+  // docs (Order.sourceName), https://shopify.dev/docs/api/admin-graphql/latest/objects/Order
+  // — read at Phase 5 time; not independently re-verified beyond the
+  // existing PLAN.md Phase 1 pass, flagged here for anyone reconfirming.
+  sourceName                 String?   @map("source_name")
+  // Heuristic channel bucket ('meta' | 'google' | 'direct' | 'other' | null
+  // for unknown) derived from Order.customerJourneySummary's UTM/referrer
+  // fields at sync time. This is a best-effort attribution heuristic, NOT a
+  // guaranteed-accurate one — multi-touch journeys collapse to a single
+  // bucket, and Shopify's own attribution windows/rules are not fully
+  // reproduced here. Every metric that reads this column documents the
+  // heuristic explicitly rather than presenting it as fact. No live
+  // Shopify data exists yet to populate this from a real sync; Phase 3's
+  // upsert path is the place this gets set once credentials exist.
+  referrerChannel             String?   @map("referrer_channel")
 
   account       Account   @relation(fields: [accountId], references: [id])
   store         Store     @relation(fields: [storeId], references: [id])
+  customer      Customer? @relation("CustomerOrders", fields: [customerId], references: [id])
   lineItems     OrderLineItem[]
   refunds       Refund[]
   discountRows  Discount[]
@@ -86,6 +106,7 @@ model Order {
   @@unique([storeId, shopifyOrderId])
   @@index([storeId, createdAt])
   @@index([storeId, processedAt])
+  @@index([storeId, customerId])
   @@index([accountId])
   @@map("orders")
 }
@@ -201,6 +222,7 @@ model Customer {
   account   Account @relation(fields: [accountId], references: [id])
   store     Store   @relation(fields: [storeId], references: [id])
   firstOrder Order? @relation("CustomerFirstOrder", fields: [firstOrderId], references: [id])
+  orders    Order[] @relation("CustomerOrders")
 
   @@unique([storeId, shopifyCustomerId])
   @@index([accountId])
@@ -294,4 +316,29 @@ model EnrichAdSpend {
   @@index([accountId])
   @@index([storeId, channel, date])
   @@map("enrich_ad_spend")
+}
+
+// Third enrich input named in CLAUDE.md's architecture table
+// ("packages/enrich  external inputs: COGS, ad spend, shipping cost") but
+// not yet modeled — added here for Phase 5's contribution-margin metric.
+// Modeled as a flat estimated cost-per-shipment (like EnrichCogs, versioned
+// by effectiveFrom), not a per-order actual cost, because no per-order
+// shipping cost source exists (Shopify's own order data has shipping
+// *charged to the customer*, not the merchant's actual carrier cost) —
+// this is explicitly an estimate, surfaced as such in the metric UI.
+model EnrichShippingCost {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  storeId       String   @map("store_id")
+  costMinor     Int      @map("cost_minor") // estimated average cost per shipment/order
+  currencyCode  String   @map("currency_code")
+  effectiveFrom DateTime @map("effective_from")
+  source        String // 'csv_upload'
+
+  account Account @relation(fields: [accountId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+
+  @@index([accountId])
+  @@index([storeId, effectiveFrom])
+  @@map("enrich_shipping_cost")
 }

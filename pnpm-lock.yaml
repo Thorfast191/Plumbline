@@ -45,6 +45,9 @@ importers:
       '@plumbline/connector':
         specifier: workspace:*
         version: link:../../packages/connector
+      '@plumbline/enrich':
+        specifier: workspace:*
+        version: link:../../packages/enrich
       '@plumbline/metrics':
         specifier: workspace:*
         version: link:../../packages/metrics

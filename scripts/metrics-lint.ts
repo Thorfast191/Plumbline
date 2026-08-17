@@ -32,8 +32,16 @@ async function main(): Promise<void> {
         problems.push(`metric "${def.id}": "${field}" must be a non-empty array`);
       }
     }
-    if (!RECON_CHECK_METRIC_IDS.includes(def.id)) {
-      problems.push(`metric "${def.id}": no recon check covers this metric (see packages/recon RECON_CHECK_METRIC_IDS)`);
+    const hasReconCheck = RECON_CHECK_METRIC_IDS.includes(def.id);
+    const hasDocumentedNonReconciliationReason =
+      def.reconciliationTargetDescription === null && typeof def.nonReconciliationReason === "string" && def.nonReconciliationReason.trim().length > 0;
+    if (!hasReconCheck && !hasDocumentedNonReconciliationReason) {
+      problems.push(
+        `metric "${def.id}": no recon check covers this metric AND no nonReconciliationReason is documented (see packages/recon RECON_CHECK_METRIC_IDS / CLAUDE.md: "Where it does not [have a comparable figure], the definition must state that explicitly")`
+      );
+    }
+    if (def.reconciliationTargetDescription !== null && def.nonReconciliationReason !== null) {
+      problems.push(`metric "${def.id}": has both a reconciliationTargetDescription and a nonReconciliationReason — a metric can't both reconcile and document why it can't`);
     }
   }
 
@@ -43,7 +51,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`metrics:lint passed — ${registry.all().length} metric(s), each with a full definition and a recon check.`);
+  const reconCovered = registry.all().filter((d) => RECON_CHECK_METRIC_IDS.includes(d.id)).length;
+  const documentedNonReconciliation = registry.all().length - reconCovered;
+  console.log(
+    `metrics:lint passed — ${registry.all().length} metric(s), each with a full definition; ${reconCovered} with a recon check, ${documentedNonReconciliation} with a documented reason they can't reconcile.`
+  );
 }
 
 function requiredNonEmptyStringFields(): Array<keyof MetricDefinition> {
