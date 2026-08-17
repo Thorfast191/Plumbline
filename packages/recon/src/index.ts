@@ -5,12 +5,16 @@ import { withAccountContextOn } from "@plumbline/model";
 import { registry, runMetric } from "@plumbline/metrics";
 import { buildReconFixture, SINGLE_DAY_PERIOD, MONTH_PERIOD, YEAR_PERIOD, SPECIAL_PERIOD } from "./fixtures.js";
 import { computeReferenceFigures, type ReferenceFigures } from "./reference.js";
-import { cleanupReconFixture, seedReconFixture, deleteOrdersForAccount, insertOrdersForStore } from "./seed.js";
+import { cleanupReconFixture, seedReconFixture, deleteOrdersForAccount, insertOrdersForStore, RECON_FIXTURE_SHOP_DOMAIN } from "./seed.js";
 
 // Re-exported for scripts/seed-demo-data.ts, which seeds this same
 // deterministic fixture into the persistent seed store so Phase 6's report
 // pages have real numbers to render in `next dev` — see that script for why.
-export { buildReconFixture, deleteOrdersForAccount, insertOrdersForStore };
+// seedReconFixture/cleanupReconFixture are additionally re-exported for
+// packages/report's end-to-end tests (Phase 7), which reuse this same
+// proven synthetic dataset in a throwaway account/store rather than
+// inventing a second one.
+export { buildReconFixture, deleteOrdersForAccount, insertOrdersForStore, seedReconFixture, cleanupReconFixture, RECON_FIXTURE_SHOP_DOMAIN };
 export type { ReconOrder } from "./fixtures.js";
 
 export interface ReconCheckResult {

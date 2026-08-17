@@ -20,6 +20,9 @@ importers:
       '@plumbline/recon':
         specifier: workspace:*
         version: link:packages/recon
+      '@plumbline/report':
+        specifier: workspace:*
+        version: link:packages/report
       '@plumbline/sync':
         specifier: workspace:*
         version: link:packages/sync
@@ -164,7 +167,13 @@ importers:
       '@plumbline/metrics':
         specifier: workspace:*
         version: link:../metrics
+      '@plumbline/model':
+        specifier: workspace:*
+        version: link:../model
     devDependencies:
+      '@plumbline/recon':
+        specifier: workspace:*
+        version: link:../recon
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

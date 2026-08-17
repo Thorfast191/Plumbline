@@ -20,6 +20,7 @@
     "@plumbline/metrics": "workspace:*",
     "@plumbline/model": "workspace:*",
     "@plumbline/recon": "workspace:*",
+    "@plumbline/report": "workspace:*",
     "@plumbline/sync": "workspace:*",
     "dotenv": "^16.4.7"
   },

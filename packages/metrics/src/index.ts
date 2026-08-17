@@ -857,3 +857,42 @@ registry.register({
   estimatedInputs: [],
   resultShape: "table",
 });
+
+// Phase 7 — packages/report's SKU-velocity-drop alert (docs/BUILD-SPEC.md:
+// "a SKU's velocity dropping") needs units sold per SKU for a period; this
+// metric is that figure. "Velocity" itself is defined by the alert
+// evaluator, not here: it compares this metric's output for two
+// consecutive equal-length periods for the same SKU and computes a percent
+// change — this metric only ever reports one period's units, by design,
+// so it composes with periods of any length rather than baking in a
+// specific comparison window.
+const SKU_UNITS_SOLD_SQL = `
+SELECT oli.sku AS sku, SUM(oli.quantity)::int AS units_sold
+FROM order_line_items oli
+JOIN orders o ON o.id = oli.order_id
+WHERE o.store_id = $1 AND o.test = false AND o.cancelled_at IS NULL
+  AND oli.sku IS NOT NULL
+  AND (o.created_at AT TIME ZONE 'UTC') >= $2 AND (o.created_at AT TIME ZONE 'UTC') < $3
+GROUP BY oli.sku
+ORDER BY oli.sku
+`.trim();
+
+registry.register({
+  id: "sku_units_sold",
+  name: "Units sold by SKU",
+  plainLanguageDefinition:
+    "Total quantity ordered per SKU, for non-test, non-cancelled orders created in the period. Line items with no SKU recorded are excluded, not bucketed under a placeholder.",
+  inclusions: ["order_line_items.quantity, summed per SKU, for orders created in the period"],
+  exclusions: ["Test orders", "Cancelled/voided orders", "Line items with no SKU"],
+  timestampUsed: "orders.created_at (order placement date), compared in UTC.",
+  refundHandling: "excluded",
+  currencyHandling: "not-applicable",
+  sql: SKU_UNITS_SOLD_SQL,
+  dependsOn: [],
+  version: 1,
+  owner: OWNER,
+  reconciliationTargetDescription: null,
+  nonReconciliationReason: "Shopify's admin reports units sold in aggregate, not per-SKU-per-arbitrary-period in a form this pipeline can query without hitting the live API at request time — see CLAUDE.md's 'never compute metrics from live API calls at request time' rule.",
+  estimatedInputs: [],
+  resultShape: "table",
+});

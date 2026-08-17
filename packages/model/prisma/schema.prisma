@@ -20,6 +20,9 @@ model Account {
   cogsEntries   EnrichCogs[]
   adSpendEntries EnrichAdSpend[]
   shippingCostEntries EnrichShippingCost[]
+  scheduledReports ScheduledReport[]
+  alertRules       AlertRule[]
+  deliveryLogs     DeliveryLog[]
 
   @@map("accounts")
 }
@@ -48,6 +51,9 @@ model Store {
   cogsEntries   EnrichCogs[]
   adSpendEntries EnrichAdSpend[]
   shippingCostEntries EnrichShippingCost[]
+  scheduledReports ScheduledReport[]
+  alertRules       AlertRule[]
+  deliveryLogs     DeliveryLog[]
 
   @@index([accountId])
   @@map("stores")
@@ -341,4 +347,98 @@ model EnrichShippingCost {
   @@index([accountId])
   @@index([storeId, effectiveFrom])
   @@map("enrich_shipping_cost")
+}
+
+// Phase 7 — docs/BUILD-SPEC.md: "Scheduled report delivery by email on a
+// cadence the merchant sets." One row per (store, report type, cadence);
+// `lastSentAt` drives due-date computation in packages/report (see
+// packages/report/src/period.ts's isReportDue) — a schedule with no prior
+// send is due immediately, matching the intuition that turning a schedule
+// on should send the first report on the next evaluation pass rather than
+// waiting a full cadence period.
+model ScheduledReport {
+  id              String    @id @default(cuid())
+  accountId       String    @map("account_id")
+  storeId         String    @map("store_id")
+  reportType      String    @map("report_type") // 'sales_overview' | 'profitability'
+  cadence         String // 'weekly' | 'monthly'
+  recipientEmails String[]  @map("recipient_emails")
+  active          Boolean   @default(true)
+  lastSentAt      DateTime? @map("last_sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  account      Account       @relation(fields: [accountId], references: [id])
+  store        Store         @relation(fields: [storeId], references: [id])
+  deliveryLogs DeliveryLog[]
+
+  @@index([accountId])
+  @@index([storeId, active])
+  @@map("scheduled_reports")
+}
+
+// Phase 7 — docs/BUILD-SPEC.md: "Threshold alerts: margin below X, returns
+// above Y, a SKU's velocity dropping." Two rule kinds share one table
+// rather than two, since both are "evaluate a figure against a threshold
+// on a cadence and email if crossed" — the branch is in which columns are
+// populated, not a different lifecycle. `metric_threshold` uses
+// metricId/comparator/thresholdMinor (metricId must be a scalar,
+// money-denominated metric from packages/metrics — contribution_margin for
+// "margin below X", sales_reversals for "returns above Y").
+// `sku_velocity_drop` uses sku/velocityDropPercent, comparing this
+// cadence's period against the immediately preceding period of the same
+// length for that SKU's units sold (packages/metrics' sku_units_sold
+// table metric).
+model AlertRule {
+  id                  String    @id @default(cuid())
+  accountId           String    @map("account_id")
+  storeId             String    @map("store_id")
+  kind                String // 'metric_threshold' | 'sku_velocity_drop'
+  metricId            String?   @map("metric_id")
+  comparator          String? // 'below' | 'above'
+  thresholdMinor      Int?      @map("threshold_minor")
+  sku                 String?
+  velocityDropPercent Int?      @map("velocity_drop_percent")
+  cadence             String // 'weekly' | 'monthly' — how often this rule is evaluated
+  recipientEmails     String[]  @map("recipient_emails")
+  active              Boolean   @default(true)
+  lastEvaluatedAt     DateTime? @map("last_evaluated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  account      Account       @relation(fields: [accountId], references: [id])
+  store        Store         @relation(fields: [storeId], references: [id])
+  deliveryLogs DeliveryLog[]
+
+  @@index([accountId])
+  @@index([storeId, active])
+  @@map("alert_rules")
+}
+
+// Phase 7 — docs/BUILD-SPEC.md: "Delivery log with retry." One row per send
+// attempt (not per logical delivery), so a failed attempt followed by a
+// successful retry produces two rows, giving a real attempt-by-attempt
+// audit trail rather than a single mutated status field.
+model DeliveryLog {
+  id                String   @id @default(cuid())
+  accountId         String   @map("account_id")
+  storeId           String   @map("store_id")
+  kind              String // 'scheduled_report' | 'alert'
+  scheduledReportId String?  @map("scheduled_report_id")
+  alertRuleId       String?  @map("alert_rule_id")
+  status            String // 'delivered' | 'failed'
+  attempt           Int      @default(1)
+  errorMessage      String?  @map("error_message")
+  recipientEmails   String[] @map("recipient_emails")
+  subject           String
+  periodFrom        DateTime @map("period_from")
+  periodTo          DateTime @map("period_to")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  account         Account          @relation(fields: [accountId], references: [id])
+  store           Store            @relation(fields: [storeId], references: [id])
+  scheduledReport ScheduledReport? @relation(fields: [scheduledReportId], references: [id])
+  alertRule       AlertRule?       @relation(fields: [alertRuleId], references: [id])
+
+  @@index([accountId])
+  @@index([storeId, createdAt])
+  @@map("delivery_log")
 }
