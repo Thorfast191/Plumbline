@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@plumbline/connector": "workspace:*",
+    "@plumbline/metrics": "workspace:*",
     "@plumbline/model": "workspace:*",
     "@plumbline/sync": "workspace:*",
     "next": "^15.1.0",

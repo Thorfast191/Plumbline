@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@plumbline/metrics": "workspace:*",
-    "@plumbline/connector": "workspace:*"
+    "@plumbline/connector": "workspace:*",
+    "@plumbline/model": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
