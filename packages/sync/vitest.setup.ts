@@ -12,3 +12,4 @@ config({ path: resolve(import.meta.dirname, "../../.env") });
 // the env vars it reads is the simpler fix here).
 if (process.env.DATABASE_URL_TEST) process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
 if (process.env.DATABASE_URL_MIGRATE_TEST) process.env.DATABASE_URL_MIGRATE = process.env.DATABASE_URL_MIGRATE_TEST;
+if (process.env.DATABASE_URL_IDENTITY_TEST) process.env.DATABASE_URL_IDENTITY = process.env.DATABASE_URL_IDENTITY_TEST;

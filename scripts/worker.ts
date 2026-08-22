@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 import { resolve } from "node:path";
 import type { listConnectedStores as ListConnectedStores, prisma as Prisma, withAccountContextOn as WithAccountContextOn } from "@plumbline/model";
-import type { createShopifyClientFromEnv as CreateShopifyClientFromEnv } from "@plumbline/connector";
+import type { createShopifyClientFromEnv as CreateShopifyClientFromEnv, TenantBudgetLimiter as TenantBudgetLimiterType } from "@plumbline/connector";
 import type { runIncrementalSync as RunIncrementalSync, runRepairPass as RunRepairPass } from "@plumbline/sync";
 import type {
   deliverScheduledReport as DeliverScheduledReport,
@@ -26,6 +26,7 @@ let listConnectedStores: typeof ListConnectedStores;
 let prisma: typeof Prisma;
 let withAccountContextOn: typeof WithAccountContextOn;
 let createShopifyClientFromEnv: typeof CreateShopifyClientFromEnv;
+let TenantBudgetLimiter: new (config: { maxPerWindow: number; windowMs: number }) => TenantBudgetLimiterType;
 let runIncrementalSync: typeof RunIncrementalSync;
 let runRepairPass: typeof RunRepairPass;
 let deliverScheduledReport: typeof DeliverScheduledReport;
@@ -50,6 +51,18 @@ const REPAIR_TRAILING_WINDOW_HOURS = 48;
 // repair loop's cadence.
 const REPORT_AND_ALERT_INTERVAL_MS = 60 * 60 * 1000;
 
+// Phase 8 — docs/BUILD-SPEC.md: "Backfill for a very large store does not
+// starve other tenants' syncs" / "Per-tenant rate limits and cost caps on
+// our side." Each tenant (keyed by accountId) gets its own sync-time
+// budget per incremental-sync window; a store whose sync is taking
+// disproportionately long gets skipped for the REST of that window once
+// its budget is spent, so the loop keeps moving on to every other tenant
+// instead of stalling behind one large store. Independent per tenant by
+// construction (packages/connector's TenantBudgetLimiter) — one tenant
+// spending its whole budget never reduces any other tenant's.
+const TENANT_SYNC_BUDGET_MS_PER_WINDOW = 5 * 60 * 1000; // 5 of the 10-minute window's minutes, per tenant
+let tenantSyncBudget: InstanceType<typeof TenantBudgetLimiter>;
+
 let shuttingDown = false;
 process.on("SIGINT", () => {
   shuttingDown = true;
@@ -65,6 +78,13 @@ async function runIncrementalForAllStores(): Promise<void> {
     return;
   }
   for (const store of stores) {
+    if (tenantSyncBudget.isExhausted(store.accountId)) {
+      console.log(
+        `[worker] incremental sync skipped for ${store.shopDomain}: tenant sync-time budget exhausted for this window (docs/BUILD-SPEC.md Phase 8 — prevents one large store starving others)`
+      );
+      continue;
+    }
+    const startedMs = Date.now();
     try {
       const client = createShopifyClientFromEnv(store.shopDomain);
       const result = await runIncrementalSync({
@@ -78,6 +98,8 @@ async function runIncrementalForAllStores(): Promise<void> {
       );
     } catch (err) {
       console.error(`[worker] incremental sync failed for ${store.shopDomain}:`, err);
+    } finally {
+      tenantSyncBudget.recordUsage(store.accountId, Date.now() - startedMs);
     }
   }
 }
@@ -241,9 +263,11 @@ async function loop(name: string, intervalMs: number, fn: () => Promise<void>): 
 
 async function main(): Promise<void> {
   ({ listConnectedStores, prisma, withAccountContextOn } = await import("@plumbline/model"));
-  ({ createShopifyClientFromEnv } = await import("@plumbline/connector"));
+  ({ createShopifyClientFromEnv, TenantBudgetLimiter } = await import("@plumbline/connector"));
   ({ runIncrementalSync, runRepairPass } = await import("@plumbline/sync"));
   ({ deliverScheduledReport, evaluateAlertRule, deliverAlert, isDue, ConsoleEmailTransport } = await import("@plumbline/report"));
+
+  tenantSyncBudget = new TenantBudgetLimiter({ maxPerWindow: TENANT_SYNC_BUDGET_MS_PER_WINDOW, windowMs: INCREMENTAL_INTERVAL_MS });
 
   console.log(
     `[worker] starting: incremental every ${INCREMENTAL_INTERVAL_MS / 1000}s, repair every ${REPAIR_INTERVAL_MS / 1000}s, ` +

@@ -4,6 +4,7 @@ import { registry } from "@plumbline/metrics";
 import { resolveReportStore, getProfitabilityScalarRows, getProfitabilityTables } from "../../../lib/report-query.js";
 import { reportRowOnScreenValue } from "../../../lib/report-data.js";
 import { resolvePeriodParams, periodQueryString, monthLabel } from "../_shared.js";
+import { combinedFreshness, runDegradable } from "../../../lib/freshness.js";
 
 // A fixed, opinionated report (not a query builder) for Phase 5's
 // differentiated metrics. None of these have a comparable Shopify admin
@@ -32,11 +33,11 @@ export default async function ProfitabilityPage({
 
   const { year, month, current } = resolvePeriodParams(params, store.shopTimezone);
 
-  const [scalarRows, tables, syncStatus] = await Promise.all([
-    getProfitabilityScalarRows(store.id, store.accountId, current, store.shopCurrency),
-    getProfitabilityTables(store.id, store.accountId, current),
-    getSyncStatus(store.accountId, store.id),
-  ]);
+  const syncStatus = await getSyncStatus(store.accountId, store.id);
+  const freshness = combinedFreshness(syncStatus.states);
+
+  const scalarResult = await runDegradable(() => getProfitabilityScalarRows(store.id, store.accountId, current, store.shopCurrency));
+  const tablesResult = await runDegradable(() => getProfitabilityTables(store.id, store.accountId, current));
 
   return (
     <main>
@@ -72,62 +73,75 @@ export default async function ProfitabilityPage({
         <a href={`/reports/profitability/export?${periodQueryString(year, month, "prev_month")}`}>Export CSV</a>
       </p>
 
-      <p>
-        <strong>Data freshness:</strong> <Link href="/sync-status">full sync status</Link>. Corrections
+      <p style={{ color: freshness.level === "stale" ? "firebrick" : freshness.level === "unknown" ? "goldenrod" : "inherit", fontWeight: freshness.level === "fresh" ? "normal" : "bold" }}>
+        <strong>Data freshness:</strong> {freshness.message} — <Link href="/sync-status">full sync status</Link>. Corrections
         in the last 24h: {syncStatus.correctionsLast24h}.
       </p>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>{monthLabel(year, month)}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {scalarRows.map((row) => (
-            <tr key={row.metricId}>
-              <td title={`See /metrics#${row.metricId} for the full definition.`}>
-                <Link href={`/metrics#${row.metricId}`}>{row.label}</Link>
-                {(registry.get(row.metricId)?.estimatedInputs.length ?? 0) > 0 ? " *" : ""}
-              </td>
-              <td>{reportRowOnScreenValue(row)}</td>
+      {!scalarResult.ok ? (
+        <p role="alert" style={{ border: "2px solid firebrick", padding: "0.5rem" }}>
+          <strong>Could not load figures.</strong> {scalarResult.errorMessage} — showing no data rather than a wrong
+          number.
+        </p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>{monthLabel(year, month)}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {scalarResult.data!.map((row) => (
+              <tr key={row.metricId}>
+                <td title={`See /metrics#${row.metricId} for the full definition.`}>
+                  <Link href={`/metrics#${row.metricId}`}>{row.label}</Link>
+                  {(registry.get(row.metricId)?.estimatedInputs.length ?? 0) > 0 ? " *" : ""}
+                </td>
+                <td>{reportRowOnScreenValue(row)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       <p>* depends on merchant-uploaded/estimated data — see /metrics for which inputs.</p>
 
-      {tables.map((table) => (
-        <section key={table.metricId}>
-          <h2 title={`See /metrics#${table.metricId} for the full definition.`}>
-            <Link href={`/metrics#${table.metricId}`}>{table.label}</Link>
-            {(registry.get(table.metricId)?.estimatedInputs.length ?? 0) > 0 ? " *" : ""}
-          </h2>
-          {table.rows.length === 0 ? (
-            <p>No data for this period.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  {table.columns.map((c) => (
-                    <th key={c}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {table.rows.map((row, i) => (
-                  <tr key={i}>
+      {!tablesResult.ok ? (
+        <p role="alert" style={{ border: "2px solid firebrick", padding: "0.5rem" }}>
+          <strong>Could not load breakdown tables.</strong> {tablesResult.errorMessage}
+        </p>
+      ) : (
+        tablesResult.data!.map((table) => (
+          <section key={table.metricId}>
+            <h2 title={`See /metrics#${table.metricId} for the full definition.`}>
+              <Link href={`/metrics#${table.metricId}`}>{table.label}</Link>
+              {(registry.get(table.metricId)?.estimatedInputs.length ?? 0) > 0 ? " *" : ""}
+            </h2>
+            {table.rows.length === 0 ? (
+              <p>No data for this period.</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
                     {table.columns.map((c) => (
-                      <td key={c}>{String(row[c] ?? "")}</td>
+                      <th key={c}>{c}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-      ))}
+                </thead>
+                <tbody>
+                  {table.rows.map((row, i) => (
+                    <tr key={i}>
+                      {table.columns.map((c) => (
+                        <td key={c}>{String(row[c] ?? "")}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        ))
+      )}
     </main>
   );
 }

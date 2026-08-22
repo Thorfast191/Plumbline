@@ -47,6 +47,11 @@ export async function createTestTenant(label: string): Promise<TestTenant> {
 }
 
 export async function cleanupTestTenant(tenant: TestTenant): Promise<void> {
+  // Order.customerId <-> Customer.firstOrderId is a circular FK (Phase 5) —
+  // both sides must be nulled before either table can be emptied, same
+  // reasoning as packages/model/src/deletion.ts's deleteAccountData.
+  await adminClient.order.updateMany({ where: { accountId: tenant.accountId }, data: { customerId: null } });
+  await adminClient.customer.updateMany({ where: { accountId: tenant.accountId }, data: { firstOrderId: null } });
   await adminClient.refundLineItem.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.refund.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.discount.deleteMany({ where: { accountId: tenant.accountId } });
@@ -56,6 +61,7 @@ export async function cleanupTestTenant(tenant: TestTenant): Promise<void> {
   await adminClient.webhookEvent.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.syncState.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.order.deleteMany({ where: { accountId: tenant.accountId } });
+  await adminClient.customer.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.store.deleteMany({ where: { accountId: tenant.accountId } });
   await adminClient.account.deleteMany({ where: { id: tenant.accountId } });
 }

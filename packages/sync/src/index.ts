@@ -11,3 +11,4 @@ export * from "./incremental.js";
 export * from "./webhooks.js";
 export * from "./repair.js";
 export * from "./status.js";
+export * from "./token-lifecycle.js";

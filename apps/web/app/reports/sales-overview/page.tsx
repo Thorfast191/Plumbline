@@ -3,6 +3,7 @@ import { getSyncStatus } from "@plumbline/sync";
 import { resolveReportStore, getSalesOverviewRows } from "../../../lib/report-query.js";
 import { reportRowOnScreenValue, type ReportRow } from "../../../lib/report-data.js";
 import { resolvePeriodParams, periodQueryString, monthLabel } from "../_shared.js";
+import { combinedFreshness, runDegradable, type FreshnessInfo } from "../../../lib/freshness.js";
 
 // A fixed, opinionated report — not a query builder (docs/BUILD-SPEC.md
 // Phase 6 explicitly forbids one). Real Shopify-admin reconciliation
@@ -31,14 +32,17 @@ export default async function SalesOverviewPage({
 
   const { year, month, compare, current, comparison, comparisonLabel } = resolvePeriodParams(params, store.shopTimezone);
 
-  const [currentRows, comparisonRows, syncStatus] = await Promise.all([
-    getSalesOverviewRows(store.id, store.accountId, current, store.shopCurrency),
-    getSalesOverviewRows(store.id, store.accountId, comparison, store.shopCurrency),
-    getSyncStatus(store.accountId, store.id),
-  ]);
+  const syncStatus = await getSyncStatus(store.accountId, store.id);
+  const freshness = combinedFreshness(syncStatus.states);
 
-  const comparisonById = new Map(comparisonRows.map((r) => [r.metricId, r]));
-  const freshness = mostRecentWatermark(syncStatus.states);
+  // BUILD-SPEC.md Phase 8: "reports serve stale data with a clear freshness
+  // warning, never a blank page or a wrong number." A failure fetching
+  // figures (simulating the platform/DB being down or degraded) renders a
+  // degraded state below instead of throwing and crashing the whole page.
+  const currentResult = await runDegradable(() => getSalesOverviewRows(store.id, store.accountId, current, store.shopCurrency));
+  const comparisonResult = await runDegradable(() => getSalesOverviewRows(store.id, store.accountId, comparison, store.shopCurrency));
+
+  const comparisonById = new Map((comparisonResult.data ?? []).map((r) => [r.metricId, r]));
 
   return (
     <main>
@@ -80,28 +84,35 @@ export default async function SalesOverviewPage({
         the table below exactly — see apps/web/lib/report-data.ts)
       </p>
 
-      <SyncFreshnessBadge correctionsLast24h={syncStatus.correctionsLast24h} freshness={freshness} />
+      <FreshnessBanner freshness={freshness} correctionsLast24h={syncStatus.correctionsLast24h} />
 
-      <table>
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>{monthLabel(year, month)}</th>
-            <th>{comparisonLabel}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {currentRows.map((row) => (
-            <tr key={row.metricId}>
-              <td title={definitionTitle(row.metricId)}>
-                <Link href={`/metrics#${row.metricId}`}>{row.label}</Link>
-              </td>
-              <td>{reportRowOnScreenValue(row)}</td>
-              <td>{formatComparison(comparisonById.get(row.metricId))}</td>
+      {!currentResult.ok ? (
+        <p role="alert" style={{ border: "2px solid firebrick", padding: "0.5rem" }}>
+          <strong>Could not load current-period figures.</strong> {currentResult.errorMessage} — showing no data rather
+          than a wrong number. Try again shortly, or check <Link href="/sync-status">sync status</Link>.
+        </p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>{monthLabel(year, month)}</th>
+              <th>{comparisonLabel}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {currentResult.data!.map((row) => (
+              <tr key={row.metricId}>
+                <td title={definitionTitle(row.metricId)}>
+                  <Link href={`/metrics#${row.metricId}`}>{row.label}</Link>
+                </td>
+                <td>{reportRowOnScreenValue(row)}</td>
+                <td>{comparisonResult.ok ? formatComparison(comparisonById.get(row.metricId)) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </main>
   );
 }
@@ -118,18 +129,12 @@ function definitionTitle(metricId: string): string {
   return `See /metrics#${metricId} for the full definition.`;
 }
 
-function mostRecentWatermark(states: Array<{ watermarkAt: Date | null }>): Date | null {
-  const withWatermark = states.map((s) => s.watermarkAt).filter((d): d is Date => d !== null);
-  if (withWatermark.length === 0) return null;
-  return new Date(Math.max(...withWatermark.map((d) => d.getTime())));
-}
-
-function SyncFreshnessBadge({ correctionsLast24h, freshness }: { correctionsLast24h: number; freshness: Date | null }) {
+function FreshnessBanner({ freshness, correctionsLast24h }: { freshness: FreshnessInfo; correctionsLast24h: number }) {
+  const color = freshness.level === "stale" ? "firebrick" : freshness.level === "unknown" ? "goldenrod" : "inherit";
   return (
-    <p>
-      <strong>Data freshness:</strong>{" "}
-      {freshness ? `synced as of ${freshness.toISOString()}` : "no sync watermark recorded yet"} —{" "}
-      <Link href="/sync-status">full sync status</Link>. Corrections in the last 24h: {correctionsLast24h}.
+    <p style={{ color, fontWeight: freshness.level === "fresh" ? "normal" : "bold" }}>
+      <strong>Data freshness:</strong> {freshness.message} — <Link href="/sync-status">full sync status</Link>. Corrections
+      in the last 24h: {correctionsLast24h}.
     </p>
   );
 }

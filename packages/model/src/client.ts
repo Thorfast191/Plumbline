@@ -2,6 +2,21 @@ import { PrismaClient, type Prisma } from "@prisma/client";
 
 export const prisma = new PrismaClient();
 
+/**
+ * Superuser/migrate connection (DATABASE_URL_MIGRATE) — bypasses RLS by
+ * Postgres design. Reserved for operations that must act across or outside
+ * normal tenant scoping on purpose: migrations, and the GDPR deletion
+ * cascade (packages/model/src/deletion.ts's `deleteAccountData` is "delete
+ * everything for this tenant," which cannot be a second application of the
+ * same RLS policy it needs to be independent of). Do not use this for
+ * anything a tenant-scoped `withAccountContext` call could do instead.
+ */
+const migrateUrl = process.env.DATABASE_URL_MIGRATE;
+if (!migrateUrl) {
+  throw new Error("DATABASE_URL_MIGRATE is not set (see .env.example) — required for migratePrisma.");
+}
+export const migratePrisma = new PrismaClient({ datasourceUrl: migrateUrl });
+
 export type TenantClient = Prisma.TransactionClient;
 
 /**

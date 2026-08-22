@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
-import { resolveStoreByDomain, withAccountContext, type TenantClient } from "@plumbline/model";
+import { resolveStoreByDomain, withAccountContext, deleteAccountData, redactCustomer, migratePrisma, type TenantClient } from "@plumbline/model";
 import { upsertOrderBundle } from "./upsert.js";
 import type { OrderBundle } from "./types.js";
+
+interface CustomersRedactPayload {
+  shop_id: number;
+  shop_domain: string;
+  customer: { id: number; email?: string; phone?: string };
+  orders_to_redact?: number[];
+}
 
 export interface HandleWebhookParams {
   shopDomain: string;
@@ -43,6 +50,21 @@ export async function handleWebhook(params: HandleWebhookParams): Promise<Handle
     return { status: "unknown_store" };
   }
 
+  // shop/redact deletes the whole account (docs/BUILD-SPEC.md Phase 8 GDPR
+  // path) via deleteAccountData, which needs the unrestricted migrate
+  // connection (see packages/model/src/client.ts's migratePrisma) — it
+  // cannot run inside the tenant-scoped `withAccountContext(tx)` below,
+  // because it deletes the store/account rows that transaction's own RLS
+  // context depends on. Shopify itself delays sending this webhook until
+  // ~48h after uninstall (docs/PLAN.md §5, citing Shopify's compliance
+  // webhook docs) — the delay is enforced on Shopify's side before
+  // delivery, not something this handler needs to reimplement; processing
+  // it immediately on receipt is correct.
+  if (params.topic === "shop/redact") {
+    await deleteAccountData(migratePrisma, store.accountId);
+    return { status: "processed" as const };
+  }
+
   return withAccountContext(store.accountId, async (tx: TenantClient) => {
     const existing = await tx.webhookEvent.findUnique({
       where: { storeId_shopifyWebhookId: { storeId: store.id, shopifyWebhookId: params.webhookId } },
@@ -63,7 +85,24 @@ export async function handleWebhook(params: HandleWebhookParams): Promise<Handle
         bundle,
       });
       correctedFields = result.correctedFields;
+    } else if (params.topic === "customers/redact") {
+      // Anonymizes the one customer named in the payload — see
+      // packages/model/src/deletion.ts's redactCustomer for why this
+      // doesn't delete order/financial history.
+      const payload = JSON.parse(params.rawBody.toString("utf8")) as CustomersRedactPayload;
+      await redactCustomer(tx, {
+        accountId: store.accountId,
+        storeId: store.id,
+        shopifyCustomerId: String(payload.customer.id),
+      });
+    } else if (params.topic === "app/uninstalled") {
+      await tx.store.update({ where: { id: store.id }, data: { uninstalledAt: new Date() } });
     }
+    // customers/data_request: Shopify does not require an automated data
+    // export — the merchant fulfills the request manually within 30 days
+    // and only needs proof a request was received. The webhookEvent row
+    // written below (topic + payload hash + timestamp) already is that
+    // record; no further action needed here.
 
     try {
       await tx.webhookEvent.create({
